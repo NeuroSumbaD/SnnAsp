@@ -24,5 +24,5 @@
   
   A sigmoid activation function was used and the network was trained for 120 epochs with the "Adam" optimizer provided in TensorFlow. A standard mean-squared error (MSE) loss function was chosen for the optimization task.
 
-  Parameters of this model are stored in earlyTfModel4.h5, but this model will be replaced in the coming weeks with a set of more advanced models.
+  *Note:* Parameters of this model are stored in earlyTfModel4.h5, but this model will be replaced in the coming weeks with a set of more advanced models.
   
