@@ -65,11 +65,15 @@ class TfCorpus(ABC):
         raise NotImplementedError
 
     def Buffer(self, buffSize):
+        '''Buffers the dataset into batches each with length of buffSize samples.
+            This should only be called once the dataset has been distilled into
+            input-output pairs.
+        '''
         self.dataset = self.dataset.map(lambda *data: (self.BufferSingle(data[0], buffSize), self.BufferSingle(data[1], buffSize)))
 
     def BufferSingle(self, tensor, buffSize):
-        '''Divides input tensor into sections of length buffSize and
-            returns a tensor of shape (batchSize, channels, buffSize)'''
+        '''Helper function that divides input tensor into sections of length
+            buffSize and returns a tensor of shape (batchSize, channels, buffSize)'''
         if len(tensor.shape) > 1:
             channels = tensor.shape[1]
             if channels == 1:
@@ -87,12 +91,39 @@ class TfCorpus(ABC):
     def ParseSingle(self, serialized):
         return tf.io.parse_single_example(serialized, self.features)
 
+    def Map(self, func):
+        self.dataset = self.dataset.map(func)
+
+    def MapChannel(self, func, channels=[]):
+        '''Apply a transformation to a specific channel of the overall
+            dataset (e.g. transform just input but not output data).
+            
+            "channels" should have the same dimensions as the dataset
+            and indicate true for each index corresponding to a channel
+            to be transformed.
+        '''
+        self.dataset = self.dataset.map(lambda *dataset: [func(data) if channels[index] else data
+                                                            for index, data in enumerate(dataset)] )
+
+    def Scale(self, scale):
+        self.dataset = self.dataset.map(lambda *dataset: [data*scale for data in dataset])
+
+    def Shift(self, shift):
+        self.dataset = self.dataset.map(lambda *dataset: [data + shift for data in dataset])
+
+    def Split(self, portion):
+        '''Splits the dataset into individual training and test sets with the
+            training set approximately the (decimal) portion size specified.
+        '''
+        numTraining = round(portion*self.numEntries)
+        return self.dataset.take(numTraining), self.dataset.skip(numTraining)
+
 
 
 class ARTRS(TfCorpus):
     '''Pipeline class specifically for ARTRS generated files.
     '''
-    parent = "../Dataset/"
+    parent = "./Dataset/"
     features = tfRecordsFeatures["ARTRS"] #dictionary for unpacking TfRecords files
 
     def __init__(self, directory, keys, filePat="/*.tfrecords"):
@@ -107,7 +138,9 @@ class ARTRS(TfCorpus):
         self.dataset = self.dataset.map(self.PrepareSingle)
 
     def PrepareSingle(self, *data):
-        return (tf.io.parse_tensor(data[0], "float32"), *data[1:])
+        traceData = tf.io.parse_tensor(data[0], "float32")
+        traceData.set_shape([960000, 8])
+        return (traceData, *data[1:])
 
     def IsolateKeys(self, data):
         tensors = [data[key] for key in self.keys]
@@ -118,7 +151,7 @@ class LibriSpeech(ARTRS):
     '''Pipeline class specifically for ARTRS generated files from the LibriSpeech
         audio corpus.
     '''
-    parent = "../Dataset/LibriSpeech/"
+    parent = "./Dataset/LibriSpeech/"
     keys = ["traceData", "signal1", "location1", "micArrOrigin"]
     def __init__(self, directory, filePat="/*.tfrecords"):
         super().__init__(directory, self.keys)
@@ -134,6 +167,7 @@ class LibriSpeech(ARTRS):
         numSamples = len(data[1])
         delay = tf.cast(tf.round(distance/343*16000), "int32") #expected sample delay in seconds
         targetSignal = tf.pad(data[1], [[delay, 0]])[:numSamples]
+        targetSignal.set_shape((960000,))
 
         return data[0], targetSignal
 
