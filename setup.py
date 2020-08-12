@@ -5,5 +5,5 @@ setuptools.setup(name = "snnasp",
                 description = "Neuromorphic audio separation package",
                 author = "Luis El Srouji",
                 author_email = "lzelsrouji@ucdavis.edu",
-                packages = setuptools.find_packages(),
-                python_requires='>=3',)
+                packages = ["snnasp"],
+                python_requires='>=3.5',)
