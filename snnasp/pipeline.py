@@ -73,15 +73,15 @@ class TfCorpus(ABC):
 
     def BufferSingle(self, tensor, buffSize):
         '''Helper function that divides input tensor into sections of length
-            buffSize and returns a tensor of shape (batchSize, channels, buffSize)'''
+            buffSize and returns a tensor of shape (batchSize, buffSize, channels)'''
         if len(tensor.shape) > 1:
             channels = tensor.shape[1]
             if channels == 1:
-                return tf.reshape(tensor, shape=(-1, buffSize))
+                return tf.reshape(tensor, shape=(buffSize, -1))
             else:
-                return tf.transpose(tf.reshape(tensor, shape=(-1, buffSize, channels)), perm=[0, 2, 1])
+                return tf.reshape(tensor, shape=(-1, buffSize, channels))
         else:
-            return tf.reshape(tensor, shape=(-1, buffSize))
+            return tf.reshape(tensor, shape=(buffSize, -1))
 
     def Parse(self):
         '''Parses self.dataset according to the dictionary in self.features
