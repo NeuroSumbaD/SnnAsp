@@ -1,6 +1,6 @@
 from abc import ABC, abstractmethod
 
-from ..pipeline import TfCorpus
+from ..pipeline import TfCorpus, Ready
 import tensorflow as tf
 
 class Net(ABC):
@@ -12,28 +12,30 @@ class Net(ABC):
         self.name = name
         self.path = self.basePath+name
         self.model = tf.keras.Sequential()
+        self.inShape = None
+        self.outShape = None
 
     def fit(self, pipeline, **kwargs):
         if isinstance(pipeline, tf.data.Dataset):
-            return self.model.fit(pipeline,**kwargs)
+            return self.model.fit(self.prepInput(Ready(pipeline)),**kwargs)
         elif isinstance(pipeline, TfCorpus):
-            return self.model.fit(pipeline.dataset,**kwargs)
+            return self.model.fit(self.prepInput(pipeline),**kwargs)
         else:
             raise TypeError(f"Expected a type {type(tf.data.Dataset)} or type {type(pipeline.TfCorpus)} but instead received {type(dataset)}")
     
-    def evaluate(self, dataset, **kwargs):
+    def evaluate(self, pipeline, **kwargs):
         if isinstance(pipeline, tf.data.Dataset):
-            return self.model.fit(pipeline,**kwargs)
+            return self.model.evaluate(self.prepInput(Ready(pipeline)),**kwargs)
         elif isinstance(pipeline, TfCorpus):
-            return self.model.fit(pipeline.dataset,**kwargs)
+            return self.model.evaluate(self.prepInput(pipeline),**kwargs)
         else:
             raise TypeError(f"Expected a type {type(tf.data.Dataset)} but instead received {type(dataset)}")
 
     def predict(self, pipeline, **kwargs):
         if isinstance(pipeline, tf.data.Dataset):
-            return self.model.fit(pipeline,**kwargs)
+            return self.model.predict(self.prepInput(Ready(pipeline)),**kwargs)
         elif isinstance(pipeline, TfCorpus):
-            return self.model.fit(pipeline.dataset,**kwargs)
+            return self.model.predict(self.prepInput(pipeline),**kwargs)
         else:
             raise TypeError(f"Expected a type {type(tf.data.Dataset)} but instead received {type(dataset)}")
 
@@ -51,6 +53,12 @@ class Net(ABC):
         '''
         raise NotImplementedError
 
+    def prepInput(self, pipeline):
+        '''returns a prepared dataset map object so that pipeline is unaffected
+            by the operations required to provide input to the model.
+        '''
+        return pipeline.Buffer(self.inShape[0], copy=True)
+
     @abstractmethod
     def save(self):
         pass
@@ -60,32 +68,38 @@ class Net(ABC):
         pass
 
 
-class ConvAutoEncoder(Net):
-    def __init__(self, name, numLayers, numKernels, kernelSize = 4,
+class ConvAutoencoder(Net):
+    def __init__(self, name, numBlocks, numKernels, kernelSize = 4,
                  activation = tf.keras.activations.sigmoid,
                  pooling = tf.keras.layers.AveragePooling1D,
                  poolSize = 4,
-                 exists = False
+                 exists = False,
+                 inLength = 256
                  ):
         super().__init__(name)
+        self.inShape = (inLength, 8)
+        self.outShape = (numKernels, 8)
         if exists:
+            print(self.path)
             self.load()
 
         else:
             self.encoder = tf.keras.Sequential()
             self.decoder = tf.keras.Sequential()
 
-            for index in range(numLayers):
+            for index in range(numBlocks):
                 self.encoder.add(tf.keras.layers.Conv1D(numKernels, kernelSize, padding="same", activation=activation))
                 self.encoder.add(pooling(poolSize, padding="same"))
 
                 self.decoder.add(tf.keras.layers.UpSampling1D(size=poolSize))
+                self.decoder.add(tf.keras.layers.Conv1D(numKernels, kernelSize, padding="same", activation=activation))
 
             self.model.add(self.encoder)
             self.model.add(self.decoder)
 
     def process(self, stream):
-        return self.model.predict(stream)
+        predictions = self.predict(stream)
+        return predictions.reshape(stream.numEntries, -1, self.inShape[1])
 
     def save(self):
         self.encoder.save(self.path+"-encoder")
@@ -94,17 +108,36 @@ class ConvAutoEncoder(Net):
 
     def load(self):
         self.model = tf.keras.models.load_model(self.path)
+        self.encoder= tf.keras.models.load_model(self.path+"-encoder")
+        self.decoder= tf.keras.models.load_model(self.path+"-decoder")
 
     
 if __name__ == "__main__":
     from ..pipeline import LibriSpeech
+    import snnasp.evaluate as evaluate
+    import matplotlib.pyplot as plt
     
-    autoencoder = ConvAutoEncoder("convAE", 2, 8)
-    autoencoder.compile(optimizer="adam", loss="mse")
+    autoencoder1 = ConvAutoencoder("convAE", 2, 8)
+    autoencoder1.compile(optimizer="adam", loss="mse")
+
+    autoencoder2 = ConvAutoencoder("convA2", 2, 8, activation = tf.keras.activations.tanh)
+    autoencoder2.compile(optimizer="adam", loss="mse")
 
     libriSpeech = LibriSpeech("dev-clean-mix")
     libriSpeech.Map(lambda *dataset: (dataset[0],dataset[0]))
-    libriSpeech.Buffer(256)
+    
+    print("Training one")
+    hist1 = autoencoder1.fit(libriSpeech, epochs = 30)
+    # plt.plot(hist.history["loss"])
+    # plt.show()
 
-    # history = autoencoder.fit(libriSpeech, epochs = 15)
+    print("Training other")
+    hist2 = autoencoder2.fit(libriSpeech, epochs = 30)
+    
+    evaluator = evaluate.Testbed(pipeline=libriSpeech,
+                                 models=[autoencoder1, autoencoder2],
+                                 metrics=[evaluate.SiSNR])
+
+    evaluator.run()
+    print(evaluator.results)
     
