@@ -64,22 +64,28 @@ class TfCorpus(ABC):
     def Prepare(self):
         raise NotImplementedError
 
-    def Buffer(self, buffSize):
+    def __iter__(self):
+        return iter(self.dataset)
+
+    def Buffer(self, buffSize, copy=False):
         '''Buffers the dataset into batches each with length of buffSize samples.
             This should only be called once the dataset has been distilled into
             input-output pairs.
         '''
-        self.dataset = self.dataset.map(lambda *data: (self.BufferSingle(data[0], buffSize), self.BufferSingle(data[1], buffSize)))
+        if copy: #return pointer to a buffered dataset map; doesn't actually copy data
+            return self.dataset.map(lambda *data: (self.BufferSingle(data[0], buffSize), self.BufferSingle(data[1], buffSize)))
+        else:
+            self.dataset = self.dataset.map(lambda *data: (self.BufferSingle(data[0], buffSize), self.BufferSingle(data[1], buffSize)))
 
     def BufferSingle(self, tensor, buffSize):
         '''Helper function that divides input tensor into sections of length
-            buffSize and returns a tensor of shape (batchSize, channels, buffSize)'''
+            buffSize and returns a tensor of shape (batchSize, buffSize, channels)'''
         if len(tensor.shape) > 1:
             channels = tensor.shape[1]
             if channels == 1:
                 return tf.reshape(tensor, shape=(-1, buffSize))
             else:
-                return tf.transpose(tf.reshape(tensor, shape=(-1, buffSize, channels)), perm=[0, 2, 1])
+                return tf.reshape(tensor, shape=(-1, buffSize, channels))
         else:
             return tf.reshape(tensor, shape=(-1, buffSize))
 
@@ -117,6 +123,19 @@ class TfCorpus(ABC):
         '''
         numTraining = round(portion*self.numEntries)
         return self.dataset.take(numTraining), self.dataset.skip(numTraining)
+
+class Ready(TfCorpus):
+    '''Class to wrap a prepared tf dataset object with the preparation
+        methods defined in this module
+    '''
+    def __init__(self, dataset, numEntries = -1):
+        self.path = None
+        self.fileList = None
+        self.numEntries = numEntries
+        self.dataset = dataset
+
+    def Prepare(self):
+        pass
 
 
 
