@@ -27,8 +27,8 @@
       optional arguments:
         -h, --help            show this help message and exit
         -t, --train           specifies if training should be attempted
-        -e, --evaluate        specifies if evaluation should be attempted
-        -d, --deep            specifies that a deep evaluation should be performed (measure SNR over dataset)
+        -e, --evaluate        plots output of single example on each version of the model
+        -d, --deep            measures SNR over the full dataset
         -m , --model          specifies name to load/save model
         -E, --epochs          provides number of epochs for training (default 120)
   

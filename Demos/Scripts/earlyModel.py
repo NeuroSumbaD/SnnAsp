@@ -7,8 +7,8 @@ import argparse
 #Parser code to provide options
 parser = argparse.ArgumentParser(description='An example feedforward network with spiking and non-spiking equivalents.')
 parser.add_argument("-t", '--train', action="store_true", help='specifies if training should be attempted')
-parser.add_argument("-e" ,'--evaluate', action="store_true", help='specifies if evaluation should be attempted')
-parser.add_argument('-d', '--deep',  action="store_true", help='specifies that a deep evaluation should be performed (measure SNR)')
+parser.add_argument("-e" ,'--evaluate', action="store_true", help='plots output of single example on each version of the model')
+parser.add_argument('-d', '--deep',  action="store_true", help='measures SNR over the full dataset')
 parser.add_argument('-m', '--model', type=str, default="earlyTfModel4", help='specifies name to load/save model')
 parser.add_argument('-E', '--epochs', type=int, default="120", help='provides number of epochs for training (default 120)')
 args = parser.parse_args()
@@ -69,7 +69,7 @@ def BufferDataset(dataset):
 libriSpeech.dataset = libriSpeech.dataset.apply(BufferDataset)
 libriSpeech.Scale(0.5)
 libriSpeech.Shift(0.5)
-trainSet, testSet = libriSpeech.Split(portion = 5/6) 
+trainSet, testSet = libriSpeech.Split(portion = 5/6)
 
 
 #If training flag is specified
@@ -104,13 +104,21 @@ else: #Otherwise load the pre-trained model from memory
     print("Loading existing model...")
     model = tf.keras.models.load_model(modelPath)
 
+print("Creating nengo nengo model...")
+snnConverter = nengo_dl.Converter(model)
+snnModel = snnConverter.net
+
+with snnModel:
+    outProbe = nengo.Probe(snnModel.ensembles[2])
+    snnEnsembleProbe = snnModel.probes[0]
+    snnInLayer = [snnConverter.inputs[key] for key in snnConverter.inputs][0]
 
 #If evaluation flag is specified
 if args.evaluate:
     print("Loading single example input...")
     singleInput, singleTarget = iter(trainSet).next()
     singleInput = singleInput.numpy()
-    singleTarget = singleTarget.numpy()
+    singleTarget = singleTarget.numpy().reshape((-1, 1))
     print("Calculating ANN output")
     sigOut = model.predict(singleInput)
 
@@ -119,22 +127,12 @@ if args.evaluate:
                  "Target": singleTarget
                 }
 
-    print("Converting to nengo model...")
-    snnConverter = nengo_dl.Converter(model)
-    snnModel = snnConverter.net
-
-    print("Calculating nengo model output...")
-    with snnModel:
-        outProbe = nengo.Probe(snnModel.ensembles[2])
-        snnEnsembleProbe = snnModel.probes[0]
-    
-    snnInLayer = [snnConverter.inputs[key] for key in snnConverter.inputs][0]
-
     with nengo_dl.Simulator(snnModel) as snnNet:
+        print("Calculating nengo model output...")
         snnData = snnNet.predict({snnInLayer: singleInput[None,:,:]})
         if len(glob.glob("./Networks/"+args.model+"Spiking"))==0:
             snnNet.save_params("./Networks/"+args.model+"Spiking")
-        snnParams = snnNet.get_nengo_params([*snnModel.ensembles, *snnModel.connections])
+        # snnParams = snnNet.get_nengo_params([*snnModel.ensembles, *snnModel.connections])
     snnOut = snnData[snnEnsembleProbe][0]
     waveforms["SNN Model"] =  snnOut
 
@@ -179,10 +177,11 @@ if args.evaluate:
     print("Done.")
 
 
+if args.deep:
     #Evaluation procedures. Will be replaced soon with official module
     def measureSNR(estimate, rawTarget):
-        estimate = (estimate[:,0]-0.5)*2
-        rawTarget = (rawTarget[:,0]-0.5)*2
+        estimate = (estimate-0.5)*2
+        rawTarget = (rawTarget-0.5)*2
         normalization = np.dot(estimate, rawTarget)/np.dot(rawTarget, rawTarget)
         target = normalization*rawTarget
         noise = estimate-target
@@ -195,45 +194,59 @@ if args.evaluate:
             SNRs.append(measureSNR(allEstimates[index], target))
         return np.mean(SNRs), np.std(SNRs)
 
+    #With mean normalization
+    def measureSNRnorm(estimate, rawTarget):
+        estimate = (estimate-0.5)*2
+        estimate -= np.mean(estimate)
 
-    if args.deep:
-        results = {}
-        print("Measuring Dataset SNR")
-        mean, stdDev = meanSNR(trainingMixes, trainingTargets)
-        results["Training Set Mean SNR"] = mean
-        results["Training Set StdDev SNR"] = stdDev
-        print("Results")
-        print(results)
-        print("Predicting with ANN...")
-        estimates = []
-        for mixture in trainingMixes:
-            estimates.append(model.predict(mixture))
-        print("Measuring ANN SNR")
-        mean, stdDev = meanSNR(estimates, trainingTargets)
-        results["ANN Train Mean SNR"] = mean
-        results["ANN Train StdDev SNR"] = stdDev
+        rawTarget = (rawTarget-0.5)*2
+        rawTarget -= np.mean(estimate)
+        normalization = np.dot(estimate, rawTarget)/np.dot(rawTarget, rawTarget)
+        target = normalization*rawTarget
+        noise = estimate-target
+        SNR = 10*np.log10(np.dot(target, target)/np.dot(noise, noise))
+        return SNR
+    def meanSNRnorm(allEstimates, allTargets):
+        SNRs = []
+        for index, target in enumerate(allTargets):
+            SNRs.append(measureSNRnorm(allEstimates[index], target))
+        return np.mean(SNRs), np.std(SNRs)
+    
+    results = {}
+    
+    def Evaluate(dataset, results, name):
+        waveforms = {"mixes": [], "ann": [], "nengo": []}
+        targets = []
+        #possibly not the most efficient but keeps the dataset from being
+        # loaded multiple times. It might be worthwhile to see if it's
+        # faster doing batch executions but for some reason it was only
+        # returning a single output for me
+        for mixture, target in dataset:
+            targets.append(target.numpy())
+            waveforms["mixes"].append(mixture.numpy()[:,0].reshape(-1))
+            print("Calulating ann output")
+            waveforms["ann"].append(model.predict(mixture).reshape(-1))
+            print("Calulating nengo output")
+            with nengo_dl.Simulator(snnModel) as snnNet:
+                snnData = snnNet.predict({snnInLayer: mixture.numpy()[None,:,:]})
+                waveforms["nengo"].append(snnData[snnEnsembleProbe][0].reshape(-1))
+
+        for key in waveforms:
+            print(f"Measuring SNR: {key}")
+            mean, stdDev = meanSNR(waveforms[key], targets)
+            results[f"{name}: {key} Mean SNR"] = mean
+            results[f"{name}: {key} StdDev SNR"] = stdDev
+
+            print(f"Measuring norm SNR: {key}")
+            mean, stdDev = meanSNRnorm(waveforms[key], targets)
+            results[f"{name}: {key} Normed Mean SNR"] = mean
+            results[f"{name}: {key} Normed StdDev SNR"] = stdDev
+
+        return results
+        
+
+    blah = Evaluate(trainSet,results, "Training data")
+    blah2 = Evaluate(testSet,results, "Testing data")
+    print(results)
 
 
-        print("Loading Test set")
-        testMixes, testTargets = loadAll(testSet)
-        print("Buffering...")
-        testMixes = bufferData(testMixes)
-        print("Convert targets to LIF")
-        for sample in testTargets:
-            convertToLIF(sample)
-        print("Done.")
-
-        print("Measuring Test set SNR")
-        mean, stdDev = meanSNR(testMixes, testTargets)
-        results["Test Set Mean SNR"] = mean
-        results["Test Set StdDev SNR"] = stdDev
-        print("Results")
-        print(results)
-        print("Predicting with ANN...")
-        estimates = []
-        for mixture in testMixes:
-            estimates.append(model.predict(mixture))
-        print("Measuring ANN SNR")
-        mean, stdDev = meanSNR(estimates, testTargets)
-        results["ANN Test Mean SNR"] = mean
-        results["ANN Test StdDev SNR"] = stdDev
