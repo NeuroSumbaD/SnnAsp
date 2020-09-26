@@ -19,25 +19,25 @@ from abc import ABC, abstractmethod
 #Dictionary containing information used to parse tfRecords files
 tfRecordsFeatures = {
         'ARTRS': {
-            'Scene': tf.io.FixedLenFeature([], tf.string),
-            'sampleRate': tf.io.FixedLenFeature([1], tf.int64),
-            'numRecs': tf.io.FixedLenFeature([1], tf.int64),
-            'micArrOrigin': tf.io.FixedLenFeature([3], tf.float32),
-            'micSteer': tf.io.FixedLenFeature([3], tf.float32),
+            'Scene': tf.FixedLenFeature([], tf.string),
+            'sampleRate': tf.FixedLenFeature([1], tf.int64),
+            'numRecs': tf.FixedLenFeature([1], tf.int64),
+            'micArrOrigin': tf.FixedLenFeature([3], tf.float32),
+            'micSteer': tf.FixedLenFeature([3], tf.float32),
 
-            'speaker1': tf.io.FixedLenFeature([], tf.string),
-            'location1': tf.io.FixedLenFeature([3], tf.float32),
-            'signal1': tf.io.FixedLenFeature([16000*60], tf.float32),
+            'speaker1': tf.FixedLenFeature([], tf.string),
+            'location1': tf.FixedLenFeature([3], tf.float32),
+            'signal1': tf.FixedLenFeature([16000*60], tf.float32),
 
-            'speaker2': tf.io.FixedLenFeature([], tf.string),
-            'location2': tf.io.FixedLenFeature([3], tf.float32),
-            'signal2': tf.io.FixedLenFeature([16000*60], tf.float32),
+            'speaker2': tf.FixedLenFeature([], tf.string),
+            'location2': tf.FixedLenFeature([3], tf.float32),
+            'signal2': tf.FixedLenFeature([16000*60], tf.float32),
             
-            'speaker3': tf.io.FixedLenFeature([], tf.string),
-            'location3': tf.io.FixedLenFeature([3], tf.float32),
-            'signal3': tf.io.FixedLenFeature([16000*60], tf.float32),
+            'speaker3': tf.FixedLenFeature([], tf.string),
+            'location3': tf.FixedLenFeature([3], tf.float32),
+            'signal3': tf.FixedLenFeature([16000*60], tf.float32),
 
-            'traceData': tf.io.FixedLenFeature([], tf.string),
+            'traceData': tf.FixedLenFeature([], tf.string),
         },
     }
 
@@ -95,7 +95,7 @@ class TfCorpus(ABC):
         self.dataset = self.dataset.map(self.ParseSingle)
         
     def ParseSingle(self, serialized):
-        return tf.io.parse_single_example(serialized, self.features)
+        return tf.parse_single_example(serialized, self.features)
 
     def Map(self, func):
         self.dataset = self.dataset.map(func)
@@ -157,7 +157,7 @@ class ARTRS(TfCorpus):
         self.dataset = self.dataset.map(self.PrepareSingle)
 
     def PrepareSingle(self, *data):
-        traceData = tf.io.parse_tensor(data[0], "float32")
+        traceData = tf.parse_tensor(data[0], "float32")
         traceData.set_shape([960000, 8])
         return (traceData, *data[1:])
 
@@ -178,12 +178,12 @@ class LibriSpeech(ARTRS):
 
     def Align(self, *data):
         #calculate euclidian distance
-        distance = tf.math.squared_difference(data[2], data[3])
-        distance = tf.math.reduce_sum(distance)
+        distance = tf.squared_difference(data[2], data[3])
+        distance = tf.reduce_sum(distance)
         distance = tf.sqrt(distance)
 
         #pad signal1 with zeros to simulate delay of source signal
-        numSamples = len(data[1])
+        numSamples = data[1].shape[0].value
         delay = tf.cast(tf.round(distance/343*16000), "int32") #expected sample delay in seconds
         targetSignal = tf.pad(data[1], [[delay, 0]])[:numSamples]
         targetSignal.set_shape((960000,))

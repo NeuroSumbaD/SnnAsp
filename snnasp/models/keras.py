@@ -21,7 +21,7 @@ class Net(ABC):
         elif isinstance(pipeline, TfCorpus):
             return self.model.fit(self.prepInput(pipeline),**kwargs)
         else:
-            raise TypeError(f"Expected a type {type(tf.data.Dataset)} or type {type(pipeline.TfCorpus)} but instead received {type(dataset)}")
+            raise TypeError("Expected a type %s or type %s but instead received %s" %(type(tf.data.Dataset), type(pipeline.TfCorpus), type(dataset)))
     
     def evaluate(self, pipeline, **kwargs):
         if isinstance(pipeline, tf.data.Dataset):
@@ -29,7 +29,7 @@ class Net(ABC):
         elif isinstance(pipeline, TfCorpus):
             return self.model.evaluate(self.prepInput(pipeline),**kwargs)
         else:
-            raise TypeError(f"Expected a type {type(tf.data.Dataset)} but instead received {type(dataset)}")
+            raise TypeError("Expected a type %s or type %s but instead received %s" %(type(tf.data.Dataset), type(pipeline.TfCorpus), type(dataset)))
 
     def predict(self, pipeline, **kwargs):
         if isinstance(pipeline, tf.data.Dataset):
@@ -37,7 +37,7 @@ class Net(ABC):
         elif isinstance(pipeline, TfCorpus):
             return self.model.predict(self.prepInput(pipeline),**kwargs)
         else:
-            raise TypeError(f"Expected a type {type(tf.data.Dataset)} but instead received {type(dataset)}")
+            raise TypeError("Expected a type %s or type %s but instead received %s" %(type(tf.data.Dataset), type(pipeline.TfCorpus), type(dataset)))
 
     def add(self, layer):
         self.model.add(layer)

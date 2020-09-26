@@ -1,6 +1,2 @@
-tensorflow==2.2.0
-nengo==3.0.0
-nengo_dl==3.2.0
-nengo_gui==0.4.6
-nengo_loihi==0.10.0
-matplotlib==3.3.0
+tensorflow==1.6.0
+matplotlib==2.2.2
