@@ -1,4 +1,4 @@
-tensorflow==2.2.1
+tensorflow==2.5.1
 nengo==3.0.0
 nengo_dl==3.2.0
 nengo_gui==0.4.6
